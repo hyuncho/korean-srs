@@ -834,7 +834,9 @@ async function boot() {
   go("home");
   if (added > 0) toast(t(`Added ${added} new words to your library`, `라이브러리에 새 단어 ${added}개 추가됨`));
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+    // updateViaCache:"none" → always re-fetch sw.js from network on update checks,
+    // so a deploy is picked up promptly instead of being masked by the HTTP cache.
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
   }
 }
 boot();

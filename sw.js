@@ -1,5 +1,6 @@
-// Service worker: cache the app shell for offline use.
-const CACHE = "korean-srs-v9";
+// Service worker: network-first for the app shell so the newest code always wins
+// when online, with a cached copy as offline fallback.
+const CACHE = "korean-srs-v10";
 const ASSETS = [
   ".",
   "index.html",
@@ -12,8 +13,17 @@ const ASSETS = [
   "icon.svg",
 ];
 
+// Precache with `cache: "reload"` so install bypasses the HTTP cache and never
+// stores a stale asset (the bug that pinned old code under a fresh cache name).
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.all(ASSETS.map((u) =>
+        fetch(new Request(u, { cache: "reload" }))
+          .then((r) => (r.ok ? c.put(u, r) : null))
+          .catch(() => {}))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
@@ -24,16 +34,18 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// Cache-first for app shell, network fallback.
+// Network-first for same-origin GETs: try the network (newest code), fall back to
+// cache when offline. Cross-origin requests go straight to the network untouched.
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
-    caches.match(e.request).then((hit) =>
-      hit || fetch(e.request).then((res) => {
+    fetch(e.request)
+      .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         return res;
-      }).catch(() => caches.match("index.html"))
-    )
+      })
+      .catch(() => caches.match(e.request).then((hit) => hit || caches.match("index.html")))
   );
 });
