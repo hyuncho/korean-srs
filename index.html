@@ -14,13 +14,19 @@
 </head>
 <body>
   <div id="app">
-    <main id="view"></main>
-    <nav id="tabbar">
-      <button data-route="home" class="tab active">📚<span>Study</span></button>
-      <button data-route="stats" class="tab">📊<span>Stats</span></button>
-      <button data-route="words" class="tab">🗂️<span>Words</span></button>
-      <button data-route="settings" class="tab">⚙️<span>Settings</span></button>
+    <header id="topbar">
+      <button id="menu-btn" class="icon-btn" aria-label="Menu" aria-expanded="false" aria-controls="menu">☰</button>
+      <div id="topbar-title">Study</div>
+      <div class="topbar-spacer"></div>
+    </header>
+    <nav id="menu" hidden>
+      <button data-route="home" class="menu-item active">📚 <span>Study</span></button>
+      <button data-route="stats" class="menu-item">📊 <span>Stats</span></button>
+      <button data-route="words" class="menu-item">🗂️ <span>Words</span></button>
+      <button data-route="settings" class="menu-item">⚙️ <span>Settings</span></button>
     </nav>
+    <div id="menu-scrim" hidden></div>
+    <main id="view"></main>
   </div>
   <script type="module" src="js/app.js"></script>
 </body>

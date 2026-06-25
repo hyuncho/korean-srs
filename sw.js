@@ -1,5 +1,5 @@
 // Service worker: cache the app shell for offline use.
-const CACHE = "korean-srs-v7";
+const CACHE = "korean-srs-v8";
 const ASSETS = [
   ".",
   "index.html",

@@ -64,15 +64,31 @@ function acceptedAnswers(card) {
 // ── Routing ──
 const routes = {};
 let currentRoute = "home";
+const ROUTE_TITLES = { home: "Study", stats: "Stats", words: "Words", settings: "Settings" };
+const menu = document.getElementById("menu");
+const menuBtn = document.getElementById("menu-btn");
+const menuScrim = document.getElementById("menu-scrim");
+const topbarTitle = document.getElementById("topbar-title");
+
+function setMenuOpen(open) {
+  menu.hidden = !open;
+  menuScrim.hidden = !open;
+  menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+menuBtn.addEventListener("click", () => setMenuOpen(menu.hidden));
+menuScrim.addEventListener("click", () => setMenuOpen(false));
+
 function go(route) {
   currentRoute = route;
-  document.querySelectorAll(".tab").forEach((t) =>
+  document.querySelectorAll(".menu-item").forEach((t) =>
     t.classList.toggle("active", t.dataset.route === route));
+  topbarTitle.textContent = ROUTE_TITLES[route] || "";
+  setMenuOpen(false);
   clear(view);
   view.scrollTop = 0;
   routes[route]();
 }
-document.querySelectorAll(".tab").forEach((t) =>
+document.querySelectorAll(".menu-item").forEach((t) =>
   t.addEventListener("click", () => go(t.dataset.route)));
 
 // ═══════════════════════ HOME ═══════════════════════
@@ -87,6 +103,13 @@ routes.home = async function () {
   const goalMet = !!day.passed;
 
   const wrap = el("div", { class: "stack" });
+  wrap.appendChild(el("div", { class: "brand" }, [
+    el("div", { class: "brand-name", text: "되새김 · Korean SRS" }),
+    el("div", { class: "brand-tag", text: "되새김 — \"rumination\": to chew over and recall again." }),
+    el("div", { class: "brand-intent", html:
+      "A personal, offline-first trainer for drilling intermediate–advanced Korean " +
+      "vocabulary with spaced repetition. No accounts, no server — everything stays on your phone." }),
+  ]));
   wrap.appendChild(el("div", { class: "hero" }, [
     el("div", { class: "due-num", text: String(active.length) }),
     el("div", { class: "due-label", text: "words in today's drill" }),
@@ -97,25 +120,12 @@ routes.home = async function () {
     el("div", { class: "pill", html: goalMet ? `✅ <b>goal met</b>` : `🆕 <b>${day.newIntroduced}</b> new` }),
   ]));
 
-  // Format selector (saved as the default).
-  const fmt = settings.format === "round" ? "round" : "continuous";
-  const seg = el("div", { class: "segmented" });
-  [["continuous", "Continuous"], ["round", "Rounds"]].forEach(([val, label]) => {
-    seg.appendChild(el("button", {
-      class: "seg" + (val === fmt ? " on" : ""), text: label,
-      onclick: async () => { settings.format = val; await saveSettings(settings); go("home"); },
-    }));
-  });
-  wrap.appendChild(seg);
-
   wrap.appendChild(el("button", {
     class: "btn", text: goalMet ? "Drill again (goal already met ✅)" : "Start daily drill",
     onclick: () => startSession(),
   }));
   wrap.appendChild(el("p", { class: "muted", style: "text-align:center;font-size:13px;margin:2px 0 0",
-    text: fmt === "continuous"
-      ? `Keep going until your overall rate hits ${PASS_GOAL}% (missed words come back more).`
-      : `Repeat full passes until one whole pass scores ${PASS_GOAL}%.` }));
+    text: `Keep going until your last ${clampGoal(settings.passGoal)}% run is clean — recent answers count, early misses age out (missed words come back more).` }));
 
   wrap.appendChild(el("h2", { text: "Today" }));
   wrap.appendChild(el("div", { class: "grid3" }, [
@@ -141,12 +151,18 @@ function tile(big, lbl) {
 }
 
 // ═══════════════════════ SESSION / QUIZ ═══════════════════════
-// Two formats:
-//  • "round"      — repeated full passes; ends when one complete pass scores >= goal.
-//  • "continuous" — one pass through the list, then weighted draws (missed words
-//                   shown more); ends when the cumulative pass rate reaches the goal.
-// Pass counts as wrong. Goal default 95%.
-const PASS_GOAL = 95;
+// One drill format ("continuous"): one pass through the list, then weighted draws
+// (missed words shown more); ends when the pass rate over the last `recentWindow`
+// answers (one deck's worth) reaches the goal, so early misses age out instead of
+// anchoring a cumulative rate forever.
+// Pass counts as wrong. Goal is adjustable in Settings (`passGoal`), clamped to
+// a sane range so it stays achievable yet meaningful.
+const GOAL_MIN = 50, GOAL_MAX = 100, GOAL_DEFAULT = 95;
+function clampGoal(g) {
+  g = parseInt(g, 10);
+  if (!Number.isFinite(g)) g = GOAL_DEFAULT;
+  return Math.min(GOAL_MAX, Math.max(GOAL_MIN, g));
+}
 
 async function startSession() {
   await ensureDailyIntroduction();
@@ -160,25 +176,20 @@ async function startSession() {
   list.forEach((c) => { modeById[c.id] = isTypingCard(c, settings); });
 
   const session = {
-    format: settings.format === "round" ? "round" : "continuous",
+    format: "continuous", // only mode; Rounds was removed
     list, modeById, allCards, settings,
+    goal: clampGoal(settings.passGoal), // % that ends the drill (from Settings)
     totalAnswers: 0, totalCorrect: 0, totalWrong: 0, bestRate: 0,
-    // round mode
-    roundNum: 0, roundQueue: [], roundCorrect: 0, roundWrong: 0,
     // continuous mode
     introQueue: [], weights: {}, lastId: null, currentCard: null,
+    // rolling window of recent results (true=correct); ends when the last
+    // `recentWindow` answers reach the goal. Window = one deck's worth, so
+    // early misses age out instead of anchoring a cumulative rate forever.
+    recent: [], recentWindow: Math.max(20, list.length),
     startedAt: Date.now(), lastTick: Date.now(),
   };
 
-  if (session.format === "round") startRound(session);
-  else { session.introQueue = shuffle(session.list); renderQuestion(session); }
-}
-
-function startRound(session) {
-  session.roundNum += 1;
-  session.roundQueue = shuffle(session.list);
-  session.roundCorrect = 0;
-  session.roundWrong = 0;
+  session.introQueue = shuffle(session.list);
   renderQuestion(session);
 }
 
@@ -191,9 +202,12 @@ async function recordTime(session) {
   await db.put("days", day);
 }
 
-function roundRate(session) {
-  const t = session.roundCorrect + session.roundWrong;
-  return t ? Math.round((session.roundCorrect / t) * 100) : 0;
+function recentRight(session) {
+  return session.recent.reduce((n, ok) => n + (ok ? 1 : 0), 0);
+}
+function recentRate(session) {
+  return session.recent.length
+    ? Math.round((recentRight(session) / session.recent.length) * 100) : 0;
 }
 function overallRate(session) {
   return session.totalAnswers ? Math.round((session.totalCorrect / session.totalAnswers) * 100) : 0;
@@ -219,28 +233,15 @@ function pickContinuous(session) {
 
 function renderQuestion(session) {
   clear(view);
-  let card;
-  if (session.format === "round") {
-    if (session.roundQueue.length === 0) { roundComplete(session); return; }
-    card = session.roundQueue[0];
-  } else {
-    card = pickContinuous(session);
-    session.currentCard = card;
-  }
+  const card = pickContinuous(session);
+  session.currentCard = card;
   const typing = session.modeById[card.id];
 
-  let scoreHtml;
-  if (session.format === "round") {
-    scoreHtml =
-      `<b class="ok-num">✓ ${session.roundCorrect}</b>&nbsp;&nbsp;` +
-      `<b class="no-num">✗ ${session.roundWrong}</b>&nbsp;&nbsp;·&nbsp;&nbsp;` +
-      `<b>${roundRate(session)}%</b>&nbsp;<span class="muted">(round ${session.roundNum})</span>`;
-  } else {
-    scoreHtml =
-      `<b class="ok-num">✓ ${session.totalCorrect}</b>&nbsp;&nbsp;` +
-      `<b class="no-num">✗ ${session.totalWrong}</b>&nbsp;&nbsp;·&nbsp;&nbsp;` +
-      `<b>${overallRate(session)}%</b>&nbsp;<span class="muted">→ ${PASS_GOAL}%</span>`;
-  }
+  const right = recentRight(session), n = session.recent.length;
+  const scoreHtml =
+    `<b class="ok-num">✓ ${right}</b>&nbsp;&nbsp;` +
+    `<b class="no-num">✗ ${n - right}</b>&nbsp;&nbsp;·&nbsp;&nbsp;` +
+    `<b>${recentRate(session)}%</b>&nbsp;<span class="muted">→ ${session.goal}% · last ${n}/${session.recentWindow}</span>`;
 
   const quiz = el("div", { class: "quiz" });
   quiz.appendChild(el("div", { class: "quiz-top" }, [
@@ -353,21 +354,19 @@ async function afterAnswer(session, card, correct, typed, quiz, revealNode) {
   if (correct) day.correct += 1; else day.wrong += 1;
 
   let goalReached = false;
-  if (session.format === "round") {
-    if (correct) session.roundCorrect += 1; else session.roundWrong += 1;
-    session.roundQueue.shift(); // one pass per round
-  } else {
-    // weight missed words up, correct ones decay back toward baseline
-    const miss = session.weights[card.id] || 0;
-    session.weights[card.id] = correct ? Math.max(0, miss - 1) : Math.min(4, miss + 1);
-    session.lastId = card.id;
-    // only judge the cumulative rate after a full first pass through the list
-    if (session.totalAnswers >= session.list.length) {
-      const r = overallRate(session);
-      session.bestRate = Math.max(session.bestRate, r);
-      day.bestRate = Math.max(day.bestRate || 0, r);
-      if (r >= PASS_GOAL) { day.passed = true; goalReached = true; }
-    }
+  // weight missed words up, correct ones decay back toward baseline
+  const miss = session.weights[card.id] || 0;
+  session.weights[card.id] = correct ? Math.max(0, miss - 1) : Math.min(4, miss + 1);
+  session.lastId = card.id;
+  // rolling window: push this result, drop the oldest beyond the window
+  session.recent.push(correct);
+  if (session.recent.length > session.recentWindow) session.recent.shift();
+  // only judge once the window is full (a deck's worth of recent answers)
+  if (session.recent.length >= session.recentWindow) {
+    const r = recentRate(session);
+    session.bestRate = Math.max(session.bestRate, r);
+    day.bestRate = Math.max(day.bestRate || 0, r);
+    if (r >= session.goal) { day.passed = true; goalReached = true; }
   }
   await db.put("days", day);
   await recordTime(session);
@@ -385,17 +384,10 @@ async function afterAnswer(session, card, correct, typed, quiz, revealNode) {
     );
   }
 
-  let label, onNext;
-  if (session.format === "round") {
-    const last = session.roundQueue.length === 0;
-    label = last ? "Finish round" : "Next →";
-    onNext = () => renderQuestion(session);
-  } else {
-    label = goalReached ? "Finish 🏆" : "Next →";
-    onNext = goalReached
-      ? () => renderGoalReached(session, overallRate(session))
-      : () => renderQuestion(session);
-  }
+  const label = goalReached ? "Finish 🏆" : "Next →";
+  const onNext = goalReached
+    ? () => renderGoalReached(session, recentRate(session))
+    : () => renderQuestion(session);
   const next = el("button", { class: "btn", text: label });
   next.addEventListener("click", onNext);
   quiz.appendChild(next);
@@ -407,46 +399,17 @@ async function endSession(session) {
   renderStopped(session);
 }
 
-// Called when a full pass through the list is complete.
-async function roundComplete(session) {
-  const rate = roundRate(session);
-  session.bestRate = Math.max(session.bestRate, rate);
-  const day = await getDay(todayStr());
-  day.bestRate = Math.max(day.bestRate || 0, rate);
-  if (rate >= PASS_GOAL) day.passed = true;
-  await db.put("days", day);
-  await recordTime(session);
-
-  if (rate >= PASS_GOAL) { renderGoalReached(session, rate); return; }
-
-  // Show the round result and offer to keep drilling.
-  clear(view);
-  const wrap = el("div", { class: "stack" });
-  wrap.appendChild(el("h1", { text: `Round ${session.roundNum} complete`, style: "text-align:center" }));
-  wrap.appendChild(el("div", { class: "grid3" }, [
-    tile("✓ " + session.roundCorrect, "correct"),
-    tile("✗ " + session.roundWrong, "wrong"),
-    tile(rate + "%", "pass rate"),
-  ]));
-  wrap.appendChild(el("p", { class: "muted", style: "text-align:center",
-    text: `Goal is ${PASS_GOAL}%. Keep going for another full pass.` }));
-  wrap.appendChild(el("button", { class: "btn", text: "Continue drilling", onclick: () => startRound(session) }));
-  wrap.appendChild(el("button", { class: "btn ghost", text: "Stop for now", onclick: () => renderStopped(session) }));
-  view.appendChild(wrap);
-}
-
 function resume(session) {
-  if (session.format === "round") startRound(session);
-  else renderQuestion(session);
+  renderQuestion(session);
 }
 
 function renderGoalReached(session, rate) {
   clear(view);
   const wrap = el("div", { class: "stack" });
   wrap.appendChild(el("div", { class: "done-emoji", text: "🏆" }));
-  wrap.appendChild(el("h1", { text: `${PASS_GOAL}% goal reached!`, style: "text-align:center" }));
+  wrap.appendChild(el("h1", { text: `${session.goal}% goal reached!`, style: "text-align:center" }));
   wrap.appendChild(el("div", { class: "grid3" }, [
-    tile(rate + "%", session.format === "round" ? "final pass" : "overall"),
+    tile(rate + "%", `last ${session.recentWindow}`),
     tile("✓ " + session.totalCorrect, "correct"),
     tile("✗ " + session.totalWrong, "wrong"),
   ]));
@@ -458,17 +421,17 @@ function renderGoalReached(session, rate) {
 
 function renderStopped(session) {
   clear(view);
-  const rate = session.format === "round" ? session.bestRate : overallRate(session);
+  const rate = overallRate(session);
   const wrap = el("div", { class: "stack" });
   wrap.appendChild(el("div", { class: "done-emoji", text: "💪" }));
   wrap.appendChild(el("h1", { text: "Stopped", style: "text-align:center" }));
   wrap.appendChild(el("div", { class: "grid3" }, [
-    tile(rate + "%", session.format === "round" ? "best pass" : "overall"),
+    tile(rate + "%", "overall"),
     tile("✓ " + session.totalCorrect, "correct"),
     tile("✗ " + session.totalWrong, "wrong"),
   ]));
   wrap.appendChild(el("p", { class: "muted", style: "text-align:center",
-    text: `You didn't hit ${PASS_GOAL}% yet — pick it back up anytime today.` }));
+    text: `You didn't hit ${session.goal}% yet — pick it back up anytime today.` }));
   wrap.appendChild(el("button", { class: "btn", text: "Back to home", onclick: () => go("home") }));
   wrap.appendChild(el("button", { class: "btn secondary", text: "Resume drilling", onclick: () => resume(session) }));
   view.appendChild(wrap);
@@ -685,6 +648,21 @@ routes.settings = async function () {
   const wrap = el("div", { class: "stack" });
   wrap.appendChild(el("h1", { text: "Settings" }));
 
+  wrap.appendChild(el("h2", { text: "Overview" }));
+  wrap.appendChild(el("div", { class: "card stack" }, [
+    el("p", { class: "muted", html:
+      "<b>되새김 · Korean SRS</b> is a spaced-repetition trainer for intermediate–advanced " +
+      "Korean vocabulary. It introduces a handful of new words each day, then drills them " +
+      "until your recent pass rate hits your goal — missed words come back more often, and a " +
+      "rough start ages out instead of sinking the whole session." }),
+    el("p", { class: "muted", html:
+      "Each word starts as multiple choice (recognize the meaning) and graduates to typing " +
+      "(produce the Korean) once you know it. Everything runs offline and stays on this " +
+      "device — no accounts, no server — so export a backup now and then." }),
+    el("p", { class: "muted", style: "margin-top:4px",
+      html: "Made by and for <b>Hyun Cho (조현진)</b> using Claude Code." }),
+  ]));
+
   const numField = (label, key, hint) => {
     const input = el("input", { type: "number", inputmode: "numeric", min: "0", value: String(s[key]) });
     input._key = key;
@@ -696,16 +674,15 @@ routes.settings = async function () {
   const mins = numField("Target session minutes", "sessionMinutes", "soft goal");
   const thr = numField("Typing graduation (days)", "typingThreshold", "interval to switch MC→typing");
 
-  const formatSel = el("select", {}, [
-    el("option", { value: "continuous", ...(s.format !== "round" ? { selected: "selected" } : {}) }, "Continuous (weighted, missed words more)"),
-    el("option", { value: "round", ...(s.format === "round" ? { selected: "selected" } : {}) }, "Rounds (full passes)"),
-  ]);
+  const goalInput = el("input", { type: "number", inputmode: "numeric",
+    min: String(GOAL_MIN), max: String(GOAL_MAX), value: String(clampGoal(s.passGoal)) });
+  const goalField = el("label", { class: "field" }, [
+    el("span", { text: `Pass goal % — ${GOAL_MIN}–${GOAL_MAX}, ends a drill` }), goalInput]);
 
   wrap.appendChild(el("div", { class: "card stack" }, [
-    el("label", { class: "field" }, [el("span", { text: "Default drill format" }), formatSel]),
-    first.node, perDay.node, mins.node, thr.node,
+    first.node, perDay.node, mins.node, thr.node, goalField,
     el("button", { class: "btn", text: "Save settings", onclick: async () => {
-      const out = { format: formatSel.value };
+      const out = { passGoal: clampGoal(goalInput.value) };
       [first, perDay, mins, thr].forEach((f) => { out[f.input._key] = Math.max(0, parseInt(f.input.value || "0", 10)); });
       await saveSettings(out); toast("Settings saved");
     } }),

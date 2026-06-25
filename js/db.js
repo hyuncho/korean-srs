@@ -54,7 +54,7 @@ export const DEFAULT_SETTINGS = {
   newPerDay: 5,        // words introduced on each subsequent day
   sessionMinutes: 10,  // target session length (soft)
   typingThreshold: 4,  // interval (days) at which a word graduates from MC to typing
-  format: "continuous", // "continuous" | "round"
+  passGoal: 95,        // % pass rate (over the rolling window) that ends a drill
 };
 
 export async function getSettings() {
