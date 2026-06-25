@@ -368,6 +368,7 @@ function renderTyping(quiz, session, card) {
       el("div", { class: "muted", text: card.en }),
       card.ex ? el("div", { class: "example", html: `${card.ex}<br>${card.exEn || ""}` }) : null,
     ]));
+    submit.remove(); // drop the Check button; afterAnswer adds "Next →"
     afterAnswer(session, card, correct, true, quiz, reveal);
   }
   const submit = el("button", { class: "btn", text: t("Check", "확인") });
