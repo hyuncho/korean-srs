@@ -26,9 +26,9 @@ function el(tag, props = {}, children = []) {
 }
 function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 function toast(msg) {
-  const t = el("div", { class: "toast", text: msg });
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 1800);
+  const node = el("div", { class: "toast", text: msg });
+  document.body.appendChild(node);
+  setTimeout(() => node.remove(), 1800);
 }
 function shuffle(arr) {
   const a = arr.slice();
@@ -61,14 +61,24 @@ function acceptedAnswers(card) {
   return set;
 }
 
+// ── i18n ──
+// UI chrome is bilingual; the vocabulary itself (words, meanings, examples) is never
+// translated. t(en, ko) returns the active language's string; persisted as settings.lang.
+let LANG = "en";
+function t(en, ko) { return LANG === "ko" ? ko : en; }
+function navLabels() {
+  return { home: t("Study", "학습"), stats: t("Stats", "통계"),
+           words: t("Words", "단어"), settings: t("Settings", "설정") };
+}
+
 // ── Routing ──
 const routes = {};
 let currentRoute = "home";
-const ROUTE_TITLES = { home: "Study", stats: "Stats", words: "Words", settings: "Settings" };
 const menu = document.getElementById("menu");
 const menuBtn = document.getElementById("menu-btn");
 const menuScrim = document.getElementById("menu-scrim");
 const topbarTitle = document.getElementById("topbar-title");
+const langBtn = document.getElementById("lang-btn");
 
 function setMenuOpen(open) {
   menu.hidden = !open;
@@ -78,18 +88,41 @@ function setMenuOpen(open) {
 menuBtn.addEventListener("click", () => setMenuOpen(menu.hidden));
 menuScrim.addEventListener("click", () => setMenuOpen(false));
 
+// Refresh the persistent chrome (menu labels, current title, language button).
+function applyChrome() {
+  const labels = navLabels();
+  document.querySelectorAll(".menu-item").forEach((b) => {
+    const span = b.querySelector("span");
+    if (span) span.textContent = labels[b.dataset.route] || "";
+  });
+  topbarTitle.textContent = labels[currentRoute] || "";
+  const ls = langBtn.querySelector("span");
+  if (ls) ls.textContent = LANG === "ko" ? "한국어" : "EN";
+}
+
+async function setLang(lang) {
+  LANG = lang === "ko" ? "ko" : "en";
+  document.documentElement.lang = LANG;
+  const s = await getSettings();
+  s.lang = LANG;
+  await saveSettings(s);
+  applyChrome();                    // relabel the menu + language button
+  go(currentRoute);                 // clear + re-render the current view in the new language
+}
+langBtn.addEventListener("click", () => setLang(LANG === "ko" ? "en" : "ko"));
+
 function go(route) {
   currentRoute = route;
-  document.querySelectorAll(".menu-item").forEach((t) =>
-    t.classList.toggle("active", t.dataset.route === route));
-  topbarTitle.textContent = ROUTE_TITLES[route] || "";
+  document.querySelectorAll(".menu-item").forEach((b) =>
+    b.classList.toggle("active", b.dataset.route === route));
+  topbarTitle.textContent = navLabels()[route] || "";
   setMenuOpen(false);
   clear(view);
   view.scrollTop = 0;
   routes[route]();
 }
-document.querySelectorAll(".menu-item").forEach((t) =>
-  t.addEventListener("click", () => go(t.dataset.route)));
+document.querySelectorAll(".menu-item").forEach((b) =>
+  b.addEventListener("click", () => go(b.dataset.route)));
 
 // ═══════════════════════ HOME ═══════════════════════
 routes.home = async function () {
@@ -105,40 +138,44 @@ routes.home = async function () {
   const wrap = el("div", { class: "stack" });
   wrap.appendChild(el("div", { class: "brand" }, [
     el("div", { class: "brand-name", text: "되새김 · Korean SRS" }),
-    el("div", { class: "brand-tag", text: "되새김 — \"rumination\": to chew over and recall again." }),
-    el("div", { class: "brand-intent", html:
+    el("div", { class: "brand-tag", text: t("되새김 — \"rumination\": to chew over and recall again.", "되새김 — 곱씹어 다시 떠올리는 일.") }),
+    el("div", { class: "brand-intent", html: t(
       "A personal, offline-first trainer for drilling intermediate–advanced Korean " +
-      "vocabulary with spaced repetition. No accounts, no server — everything stays on your phone." }),
+      "vocabulary with spaced repetition. No accounts, no server — everything stays on your phone.",
+      "중·고급 한국어 어휘를 간격 반복으로 익히는 개인용 오프라인 트레이너입니다. " +
+      "계정도 서버도 없이 모든 데이터는 휴대폰에만 저장됩니다.") }),
   ]));
   wrap.appendChild(el("div", { class: "hero" }, [
     el("div", { class: "due-num", text: String(active.length) }),
-    el("div", { class: "due-label", text: "words in today's drill" }),
+    el("div", { class: "due-label", text: t("words in today's drill", "오늘 학습할 단어") }),
   ]));
   wrap.appendChild(el("div", { class: "stat-pills" }, [
-    el("div", { class: "pill", html: `🔥 <b>${streak}</b> day streak` }),
-    el("div", { class: "pill", html: `🎯 best today <b>${day.bestRate || 0}%</b>` }),
-    el("div", { class: "pill", html: goalMet ? `✅ <b>goal met</b>` : `🆕 <b>${day.newIntroduced}</b> new` }),
+    el("div", { class: "pill", html: t(`🔥 <b>${streak}</b> day streak`, `🔥 <b>${streak}</b>일 연속`) }),
+    el("div", { class: "pill", html: t(`🎯 best today <b>${day.bestRate || 0}%</b>`, `🎯 오늘 최고 <b>${day.bestRate || 0}%</b>`) }),
+    el("div", { class: "pill", html: goalMet ? t(`✅ <b>goal met</b>`, `✅ <b>목표 달성</b>`) : t(`🆕 <b>${day.newIntroduced}</b> new`, `🆕 새 단어 <b>${day.newIntroduced}</b>`) }),
   ]));
 
   wrap.appendChild(el("button", {
-    class: "btn", text: goalMet ? "Drill again (goal already met ✅)" : "Start daily drill",
+    class: "btn", text: goalMet ? t("Drill again (goal already met ✅)", "다시 학습 (목표 달성 ✅)") : t("Start daily drill", "오늘 학습 시작"),
     onclick: () => startSession(),
   }));
   wrap.appendChild(el("p", { class: "muted", style: "text-align:center;font-size:13px;margin:2px 0 0",
-    text: `Keep going until your last ${clampGoal(settings.passGoal)}% run is clean — recent answers count, early misses age out (missed words come back more).` }));
+    text: t(
+      `Keep going until your last ${clampGoal(settings.passGoal)}% run is clean — recent answers count, early misses age out (missed words come back more).`,
+      `최근 ${clampGoal(settings.passGoal)}% 구간이 깨끗해질 때까지 계속하세요 — 최근 답만 반영되고 초반 실수는 점차 사라집니다 (틀린 단어는 더 자주 나옵니다).`) }));
 
-  wrap.appendChild(el("h2", { text: "Today" }));
+  wrap.appendChild(el("h2", { text: t("Today", "오늘") }));
   wrap.appendChild(el("div", { class: "grid3" }, [
-    tile((day.bestRate || 0) + "%", "best pass"),
-    tile(day.reviewed, "answers"),
-    tile(fmtTime(day.timeMs), "time"),
+    tile((day.bestRate || 0) + "%", t("best pass", "최고 정답률")),
+    tile(day.reviewed, t("answers", "답변 수")),
+    tile(fmtTime(day.timeMs), t("time", "시간")),
   ]));
 
-  wrap.appendChild(el("h2", { text: "Library" }));
+  wrap.appendChild(el("h2", { text: t("Library", "라이브러리") }));
   wrap.appendChild(el("div", { class: "grid3" }, [
-    tile(active.length, "active"),
-    tile(typingStage.length, "typing stage"),
-    tile(cards.filter((c) => !c.introduced && !c.suspended).length, "upcoming"),
+    tile(active.length, t("active", "활성")),
+    tile(typingStage.length, t("typing stage", "타이핑 단계")),
+    tile(cards.filter((c) => !c.introduced && !c.suspended).length, t("upcoming", "예정")),
   ]));
 
   view.appendChild(wrap);
@@ -168,7 +205,7 @@ async function startSession() {
   await ensureDailyIntroduction();
   const allCards = await db.getAll("cards");
   const list = allCards.filter((c) => c.introduced && !c.suspended);
-  if (list.length === 0) { toast("No words yet — add some in Words tab"); return; }
+  if (list.length === 0) { toast(t("No words yet — add some in Words tab", "아직 단어가 없어요 — 단어 탭에서 추가하세요")); return; }
   const settings = await getSettings();
 
   // Freeze each word's mode (MC vs typing) for the whole session.
@@ -241,12 +278,12 @@ function renderQuestion(session) {
   const scoreHtml =
     `<b class="ok-num">✓ ${right}</b>&nbsp;&nbsp;` +
     `<b class="no-num">✗ ${n - right}</b>&nbsp;&nbsp;·&nbsp;&nbsp;` +
-    `<b>${recentRate(session)}%</b>&nbsp;<span class="muted">→ ${session.goal}% · last ${n}/${session.recentWindow}</span>`;
+    `<b>${recentRate(session)}%</b>&nbsp;<span class="muted">→ ${session.goal}% · ${t("last", "최근")} ${n}/${session.recentWindow}</span>`;
 
   const quiz = el("div", { class: "quiz" });
   quiz.appendChild(el("div", { class: "quiz-top" }, [
     el("span", { class: "scoreline", html: scoreHtml }),
-    el("span", { class: "muted", onclick: () => endSession(session), text: "End ✕", style: "cursor:pointer" }),
+    el("span", { class: "muted", onclick: () => endSession(session), text: t("End ✕", "종료 ✕"), style: "cursor:pointer" }),
   ]));
 
   if (typing) renderTyping(quiz, session, card);
@@ -257,7 +294,7 @@ function renderQuestion(session) {
 
 function renderMultipleChoice(quiz, session, card) {
   quiz.appendChild(el("div", { class: "prompt-card" }, [
-    el("div", { class: "mode-tag", text: "Recognize · pick the meaning" }),
+    el("div", { class: "mode-tag", text: t("Recognize · pick the meaning", "인식 · 뜻 고르기") }),
     el("div", { class: "word", text: card.ko }),
   ]));
 
@@ -275,7 +312,7 @@ function renderMultipleChoice(quiz, session, card) {
     const correctBtn = buttons.find((x) => x._cardId === card.id);
     if (correctBtn) correctBtn.classList.add("correct");
     feedback.className = "feedback " + (correct ? "ok" : "no");
-    feedback.textContent = correct ? "정답! ✓" : `Answer: ${card.ko} — ${card.en}`;
+    feedback.textContent = correct ? t("Correct! ✓", "정답! ✓") : `${t("Answer", "정답")}: ${card.ko} — ${card.en}`;
     afterAnswer(session, card, correct, false, quiz, null);
   }
 
@@ -296,7 +333,7 @@ function renderMultipleChoice(quiz, session, card) {
 
   // Pass = honest "I don't know" (counts as wrong).
   const actions = el("div", { class: "mc-actions" }, [
-    el("button", { class: "btn ghost sm", text: "Pass · I don't know", onclick: () => reveal(false) }),
+    el("button", { class: "btn ghost sm", text: t("Pass · I don't know", "모름 · 패스"), onclick: () => reveal(false) }),
   ]);
   quiz.appendChild(actions);
   quiz.appendChild(feedback);
@@ -304,13 +341,13 @@ function renderMultipleChoice(quiz, session, card) {
 
 function renderTyping(quiz, session, card) {
   quiz.appendChild(el("div", { class: "prompt-card" }, [
-    el("div", { class: "mode-tag", text: "Produce · type the Korean" }),
+    el("div", { class: "mode-tag", text: t("Produce · type the Korean", "생성 · 한국어 입력") }),
     el("div", { class: "word", text: card.en }),
     card.topic ? el("div", { class: "sub", text: "(" + card.topic + ")" }) : null,
   ]));
 
   const input = el("input", { type: "text", autocomplete: "off", autocapitalize: "off",
-    autocorrect: "off", spellcheck: "false", placeholder: "한국어 입력…", lang: "ko" });
+    autocorrect: "off", spellcheck: "false", placeholder: t("Type in Korean…", "한국어 입력…"), lang: "ko" });
   const feedback = el("div", { class: "feedback" });
   const reveal = el("div");
   let checked = false;
@@ -321,7 +358,7 @@ function renderTyping(quiz, session, card) {
     const correct = !forceWrong && acceptedAnswers(card).has(normalizeKo(input.value));
     input.disabled = true;
     feedback.className = "feedback " + (correct ? "ok" : "no");
-    feedback.textContent = correct ? "정답! ✓" : "다시 보자";
+    feedback.textContent = correct ? t("Correct! ✓", "정답! ✓") : t("Try again", "다시 보자");
     clear(reveal);
     reveal.appendChild(el("div", { class: "answer-reveal" }, [
       el("div", { class: "ko", text: card.ko }),
@@ -330,13 +367,13 @@ function renderTyping(quiz, session, card) {
     ]));
     afterAnswer(session, card, correct, true, quiz, reveal);
   }
-  const submit = el("button", { class: "btn", text: "Check" });
+  const submit = el("button", { class: "btn", text: t("Check", "확인") });
   submit.addEventListener("click", () => check(false));
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") check(false); });
 
   quiz.appendChild(input);
   quiz.appendChild(el("div", { class: "mc-actions" }, [
-    el("button", { class: "btn ghost sm", text: "Pass · I don't know", onclick: () => check(true) }),
+    el("button", { class: "btn ghost sm", text: t("Pass · I don't know", "모름 · 패스"), onclick: () => check(true) }),
   ]));
   quiz.appendChild(reveal);
   quiz.appendChild(feedback);
@@ -384,7 +421,7 @@ async function afterAnswer(session, card, correct, typed, quiz, revealNode) {
     );
   }
 
-  const label = goalReached ? "Finish 🏆" : "Next →";
+  const label = goalReached ? t("Finish 🏆", "완료 🏆") : t("Next →", "다음 →");
   const onNext = goalReached
     ? () => renderGoalReached(session, recentRate(session))
     : () => renderQuestion(session);
@@ -407,15 +444,15 @@ function renderGoalReached(session, rate) {
   clear(view);
   const wrap = el("div", { class: "stack" });
   wrap.appendChild(el("div", { class: "done-emoji", text: "🏆" }));
-  wrap.appendChild(el("h1", { text: `${session.goal}% goal reached!`, style: "text-align:center" }));
+  wrap.appendChild(el("h1", { text: t(`${session.goal}% goal reached!`, `${session.goal}% 목표 달성!`), style: "text-align:center" }));
   wrap.appendChild(el("div", { class: "grid3" }, [
-    tile(rate + "%", `last ${session.recentWindow}`),
-    tile("✓ " + session.totalCorrect, "correct"),
-    tile("✗ " + session.totalWrong, "wrong"),
+    tile(rate + "%", t(`last ${session.recentWindow}`, `최근 ${session.recentWindow}`)),
+    tile("✓ " + session.totalCorrect, t("correct", "정답")),
+    tile("✗ " + session.totalWrong, t("wrong", "오답")),
   ]));
-  wrap.appendChild(el("p", { class: "muted", style: "text-align:center", text: "Nice work — see you tomorrow for +5 new words." }));
-  wrap.appendChild(el("button", { class: "btn", text: "Back to home", onclick: () => go("home") }));
-  wrap.appendChild(el("button", { class: "btn secondary", text: "Drill again anyway", onclick: () => resume(session) }));
+  wrap.appendChild(el("p", { class: "muted", style: "text-align:center", text: t("Nice work — see you tomorrow for +5 new words.", "잘했어요 — 내일 새 단어 +5개로 만나요.") }));
+  wrap.appendChild(el("button", { class: "btn", text: t("Back to home", "홈으로"), onclick: () => go("home") }));
+  wrap.appendChild(el("button", { class: "btn secondary", text: t("Drill again anyway", "그래도 다시 학습"), onclick: () => resume(session) }));
   view.appendChild(wrap);
 }
 
@@ -424,16 +461,16 @@ function renderStopped(session) {
   const rate = overallRate(session);
   const wrap = el("div", { class: "stack" });
   wrap.appendChild(el("div", { class: "done-emoji", text: "💪" }));
-  wrap.appendChild(el("h1", { text: "Stopped", style: "text-align:center" }));
+  wrap.appendChild(el("h1", { text: t("Stopped", "중단됨"), style: "text-align:center" }));
   wrap.appendChild(el("div", { class: "grid3" }, [
-    tile(rate + "%", "overall"),
-    tile("✓ " + session.totalCorrect, "correct"),
-    tile("✗ " + session.totalWrong, "wrong"),
+    tile(rate + "%", t("overall", "전체")),
+    tile("✓ " + session.totalCorrect, t("correct", "정답")),
+    tile("✗ " + session.totalWrong, t("wrong", "오답")),
   ]));
   wrap.appendChild(el("p", { class: "muted", style: "text-align:center",
-    text: `You didn't hit ${session.goal}% yet — pick it back up anytime today.` }));
-  wrap.appendChild(el("button", { class: "btn", text: "Back to home", onclick: () => go("home") }));
-  wrap.appendChild(el("button", { class: "btn secondary", text: "Resume drilling", onclick: () => resume(session) }));
+    text: t(`You didn't hit ${session.goal}% yet — pick it back up anytime today.`, `아직 ${session.goal}%에 도달하지 못했어요 — 오늘 중 언제든 이어서 하세요.`) }));
+  wrap.appendChild(el("button", { class: "btn", text: t("Back to home", "홈으로"), onclick: () => go("home") }));
+  wrap.appendChild(el("button", { class: "btn secondary", text: t("Resume drilling", "이어서 학습"), onclick: () => resume(session) }));
   view.appendChild(wrap);
 }
 
@@ -468,30 +505,30 @@ routes.stats = async function () {
   const mastered = cards.filter((c) => !c.suspended && c.intervalDays >= 21).length;
 
   const wrap = el("div", {});
-  wrap.appendChild(el("h1", { text: "Statistics" }));
+  wrap.appendChild(el("h1", { text: t("Statistics", "통계") }));
   wrap.appendChild(el("div", { class: "grid2" }, [
-    tile("🔥 " + streak, "day streak"),
-    tile(retention + "%", "overall retention"),
+    tile("🔥 " + streak, t("day streak", "일 연속")),
+    tile(retention + "%", t("overall retention", "전체 정답률")),
   ]));
   wrap.appendChild(el("div", { class: "grid2", style: "margin-top:12px" }, [
-    tile(byStatus.review, "in review"),
-    tile(mastered, "mastered (21d+)"),
+    tile(byStatus.review, t("in review", "복습 중")),
+    tile(mastered, t("mastered (21d+)", "숙달 (21일+)")),
   ]));
 
-  wrap.appendChild(el("h2", { text: "Word breakdown" }));
+  wrap.appendChild(el("h2", { text: t("Word breakdown", "단어 분류") }));
   wrap.appendChild(el("div", { class: "card" }, [
-    statLine("Active – review", byStatus.review),
-    statLine("Active – learning", byStatus.learning),
-    statLine("Upcoming (not yet introduced)", byStatus.upcoming),
-    statLine("Do-not-show (suspended)", byStatus.suspended),
-    statLine("Total in library", cards.length, true),
+    statLine(t("Active – review", "활성 – 복습"), byStatus.review),
+    statLine(t("Active – learning", "활성 – 학습"), byStatus.learning),
+    statLine(t("Upcoming (not yet introduced)", "예정 (아직 미도입)"), byStatus.upcoming),
+    statLine(t("Do-not-show (suspended)", "표시 안 함 (보류)"), byStatus.suspended),
+    statLine(t("Total in library", "라이브러리 전체"), cards.length, true),
   ]));
 
   // last 14 days
-  wrap.appendChild(el("h2", { text: "Last 14 days · reviews" }));
+  wrap.appendChild(el("h2", { text: t("Last 14 days · reviews", "최근 14일 · 복습 수") }));
   wrap.appendChild(buildBars(days, 14, "reviewed"));
 
-  wrap.appendChild(el("h2", { text: "Last 14 days · accuracy %" }));
+  wrap.appendChild(el("h2", { text: t("Last 14 days · accuracy %", "최근 14일 · 정답률 %") }));
   wrap.appendChild(buildAccuracyBars(days, 14));
 
   view.appendChild(wrap);
@@ -551,12 +588,12 @@ routes.words = async function () {
   const cards = (await db.getAll("cards")).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   const wrap = el("div", {});
   const header = el("div", { class: "row", style: "align-items:center;justify-content:space-between" }, [
-    el("h1", { text: `Words (${cards.length})`, style: "margin:0" }),
-    el("button", { class: "iconbtn", text: "＋ Add", onclick: () => openWordForm(null) }),
+    el("h1", { text: t(`Words (${cards.length})`, `단어 (${cards.length})`), style: "margin:0" }),
+    el("button", { class: "iconbtn", text: t("＋ Add", "＋ 추가"), onclick: () => openWordForm(null) }),
   ]);
   wrap.appendChild(header);
 
-  const search = el("input", { class: "search", type: "search", placeholder: "Search Korean or English…",
+  const search = el("input", { class: "search", type: "search", placeholder: t("Search Korean or English…", "한국어 또는 영어 검색…"),
     value: wordFilter, oninput: (e) => { wordFilter = e.target.value; renderWordList(list, cards); } });
   wrap.appendChild(el("div", { style: "margin-top:12px" }, [search]));
 
@@ -572,31 +609,41 @@ function renderWordList(list, cards) {
   const filtered = cards.filter((c) =>
     !f || c.ko.toLowerCase().includes(f) || c.en.toLowerCase().includes(f) || (c.topic || "").includes(f));
   if (filtered.length === 0) {
-    list.appendChild(el("div", { class: "empty", text: "No matching words." }));
+    list.appendChild(el("div", { class: "empty", text: t("No matching words.", "일치하는 단어가 없어요.") }));
     return;
   }
   filtered.forEach((c) => {
     const status = c.suspended ? "suspended" : (!c.introduced ? "new" : c.status);
     const acc = c.seen ? Math.round((c.correct / c.seen) * 100) + "%" : "—";
+    const tail = c.introduced && !c.suspended ? t("due ", "복습 ") + dueLabel(c.due) : statusLabel(status);
+    const meta = t(`${c.topic} · seen ${c.seen} · acc ${acc} · ${tail}`,
+                   `${c.topic} · ${c.seen}회 · 정답률 ${acc} · ${tail}`);
     const row = el("div", { class: "wordrow" }, [
       el("div", { class: "grow", onclick: () => openWordForm(c) }, [
         el("div", { class: "ko", text: c.ko }),
         el("div", { class: "en", text: c.en }),
-        el("div", { class: "meta", text: `${c.topic} · seen ${c.seen} · acc ${acc} · ${c.introduced && !c.suspended ? "due " + dueLabel(c.due) : status}` }),
+        el("div", { class: "meta", text: meta }),
       ]),
-      el("span", { class: "badge " + status, text: status }),
-      el("button", { class: "iconbtn", text: c.suspended ? "👁" : "🚫", title: "Do Not Show",
+      el("span", { class: "badge " + status, text: statusLabel(status) }),
+      el("button", { class: "iconbtn", text: c.suspended ? "👁" : "🚫", title: t("Do Not Show", "표시 안 함"),
         onclick: async () => { c.suspended = !c.suspended; await db.put("cards", c); go("words"); } }),
     ]);
     list.appendChild(row);
   });
 }
+// Card status → localized label (the raw status string still drives the CSS class).
+function statusLabel(status) {
+  return {
+    new: t("new", "새 단어"), learning: t("learning", "학습"),
+    review: t("review", "복습"), suspended: t("suspended", "보류"),
+  }[status] || status;
+}
 function dueLabel(due) {
   const diff = due - Date.now();
-  if (diff <= 0) return "now";
+  if (diff <= 0) return t("now", "지금");
   const d = Math.round(diff / 86400000);
-  if (d < 1) return "today";
-  return d + "d";
+  if (d < 1) return t("today", "오늘");
+  return t(d + "d", d + "일");
 }
 
 function openWordForm(card) {
@@ -611,32 +658,32 @@ function openWordForm(card) {
     input._key = key;
     return { node: el("label", { class: "field" }, [el("span", { text: label }), input]), input };
   };
-  const ko = f("Korean", "ko", "한국어");
-  const en = f("English meaning", "en", "meaning");
+  const ko = f(t("Korean", "한국어"), "ko", "한국어");
+  const en = f(t("English meaning", "영어 뜻"), "en", t("meaning", "뜻"));
   const topicSel = el("select", {}, ["society","business","emotion","medical","finance","economy","government","general","verb","adjective","idiom","law","tech","politics","education"]
-    .map((t) => el("option", { value: t, ...(t === c.topic ? { selected: "selected" } : {}) }, t)));
-  const ex = f("Example (Korean, optional)", "ex");
-  const exEn = f("Example translation (optional)", "exEn");
+    .map((topic) => el("option", { value: topic, ...(topic === c.topic ? { selected: "selected" } : {}) }, topic)));
+  const ex = f(t("Example (Korean, optional)", "예문 (한국어, 선택)"), "ex");
+  const exEn = f(t("Example translation (optional)", "예문 번역 (선택)"), "exEn");
 
   const modal = el("div", { class: "modal stack" }, [
-    el("h1", { text: editing ? "Edit word" : "Add word" }),
+    el("h1", { text: editing ? t("Edit word", "단어 편집") : t("Add word", "단어 추가") }),
     ko.node, en.node,
-    el("label", { class: "field" }, [el("span", { text: "Topic" }), topicSel]),
+    el("label", { class: "field" }, [el("span", { text: t("Topic", "주제") }), topicSel]),
     ex.node, exEn.node,
-    el("button", { class: "btn", text: "Save", onclick: async () => {
+    el("button", { class: "btn", text: t("Save", "저장"), onclick: async () => {
       c.ko = ko.input.value.trim();
       c.en = en.input.value.trim();
       c.topic = topicSel.value;
       c.ex = ex.input.value.trim();
       c.exEn = exEn.input.value.trim();
-      if (!c.ko || !c.en) { toast("Korean and English are required"); return; }
+      if (!c.ko || !c.en) { toast(t("Korean and English are required", "한국어와 영어는 필수입니다")); return; }
       await db.put("cards", c);
-      close(); go("words"); toast(editing ? "Saved" : "Added");
+      close(); go("words"); toast(editing ? t("Saved", "저장됨") : t("Added", "추가됨"));
     } }),
-    editing ? el("button", { class: "btn danger", text: "Delete word", onclick: async () => {
-      if (confirm("Delete this word and its stats?")) { await db.del("cards", c.id); close(); go("words"); }
+    editing ? el("button", { class: "btn danger", text: t("Delete word", "단어 삭제"), onclick: async () => {
+      if (confirm(t("Delete this word and its stats?", "이 단어와 통계를 삭제할까요?"))) { await db.del("cards", c.id); close(); go("words"); }
     } }) : null,
-    el("button", { class: "btn ghost", text: "Cancel", onclick: close }),
+    el("button", { class: "btn ghost", text: t("Cancel", "취소"), onclick: close }),
   ]);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
@@ -646,21 +693,27 @@ function openWordForm(card) {
 routes.settings = async function () {
   const s = await getSettings();
   const wrap = el("div", { class: "stack" });
-  wrap.appendChild(el("h1", { text: "Settings" }));
+  wrap.appendChild(el("h1", { text: t("Settings", "설정") }));
 
-  wrap.appendChild(el("h2", { text: "Overview" }));
+  wrap.appendChild(el("h2", { text: t("Overview", "개요") }));
   wrap.appendChild(el("div", { class: "card stack" }, [
-    el("p", { class: "muted", html:
+    el("p", { class: "muted", html: t(
       "<b>되새김 · Korean SRS</b> is a spaced-repetition trainer for intermediate–advanced " +
       "Korean vocabulary. It introduces a handful of new words each day, then drills them " +
       "until your recent pass rate hits your goal — missed words come back more often, and a " +
-      "rough start ages out instead of sinking the whole session." }),
-    el("p", { class: "muted", html:
+      "rough start ages out instead of sinking the whole session.",
+      "<b>되새김 · Korean SRS</b>는 중·고급 한국어 어휘를 위한 간격 반복 학습 도구입니다. " +
+      "매일 새 단어를 조금씩 도입하고, 최근 정답률이 목표에 도달할 때까지 반복합니다 — " +
+      "틀린 단어는 더 자주 나오고, 초반 실수는 세션 전체를 망치지 않고 점차 사라집니다.") }),
+    el("p", { class: "muted", html: t(
       "Each word starts as multiple choice (recognize the meaning) and graduates to typing " +
       "(produce the Korean) once you know it. Everything runs offline and stays on this " +
-      "device — no accounts, no server — so export a backup now and then." }),
+      "device — no accounts, no server — so export a backup now and then.",
+      "각 단어는 객관식(뜻 인식)으로 시작해 익숙해지면 타이핑(한국어 입력)으로 넘어갑니다. " +
+      "모든 것은 오프라인으로 이 기기에만 저장됩니다 — 계정도 서버도 없으니 가끔 백업을 내보내 두세요.") }),
     el("p", { class: "muted", style: "margin-top:4px",
-      html: "Made by and for <b>Hyun Cho (조현진)</b> using Claude Code." }),
+      html: t("Made by and for <b>Hyun Cho (조현진)</b> using Claude Code.",
+              "<b>조현진 (Hyun Cho)</b>이(가) Claude Code로 직접 만들고 사용합니다.") }),
   ]));
 
   const numField = (label, key, hint) => {
@@ -669,40 +722,40 @@ routes.settings = async function () {
     return { node: el("label", { class: "field" }, [
       el("span", { text: label + (hint ? ` — ${hint}` : "") }), input]), input };
   };
-  const first = numField("First-day word count", "firstDayCount");
-  const perDay = numField("New words per day", "newPerDay");
-  const mins = numField("Target session minutes", "sessionMinutes", "soft goal");
-  const thr = numField("Typing graduation (days)", "typingThreshold", "interval to switch MC→typing");
+  const first = numField(t("First-day word count", "첫날 단어 수"), "firstDayCount");
+  const perDay = numField(t("New words per day", "하루 새 단어 수"), "newPerDay");
+  const mins = numField(t("Target session minutes", "목표 학습 시간(분)"), "sessionMinutes", t("soft goal", "느슨한 목표"));
+  const thr = numField(t("Typing graduation (days)", "타이핑 전환 (일)"), "typingThreshold", t("interval to switch MC→typing", "객관식→타이핑 전환 간격"));
 
   const goalInput = el("input", { type: "number", inputmode: "numeric",
     min: String(GOAL_MIN), max: String(GOAL_MAX), value: String(clampGoal(s.passGoal)) });
   const goalField = el("label", { class: "field" }, [
-    el("span", { text: `Pass goal % — ${GOAL_MIN}–${GOAL_MAX}, ends a drill` }), goalInput]);
+    el("span", { text: t(`Pass goal % — ${GOAL_MIN}–${GOAL_MAX}, ends a drill`, `통과 목표 % — ${GOAL_MIN}–${GOAL_MAX}, 학습 종료 기준`) }), goalInput]);
 
   wrap.appendChild(el("div", { class: "card stack" }, [
     first.node, perDay.node, mins.node, thr.node, goalField,
-    el("button", { class: "btn", text: "Save settings", onclick: async () => {
-      const out = { passGoal: clampGoal(goalInput.value) };
+    el("button", { class: "btn", text: t("Save settings", "설정 저장"), onclick: async () => {
+      const out = { ...s, passGoal: clampGoal(goalInput.value) };
       [first, perDay, mins, thr].forEach((f) => { out[f.input._key] = Math.max(0, parseInt(f.input.value || "0", 10)); });
-      await saveSettings(out); toast("Settings saved");
+      await saveSettings(out); toast(t("Settings saved", "설정 저장됨"));
     } }),
   ]));
 
-  wrap.appendChild(el("h2", { text: "Backup" }));
+  wrap.appendChild(el("h2", { text: t("Backup", "백업") }));
   wrap.appendChild(el("div", { class: "card stack" }, [
-    el("p", { class: "muted", text: "All data lives on this device. Export a backup file regularly so clearing your browser can't lose your progress." }),
-    el("button", { class: "btn secondary", text: "⬇ Export backup", onclick: exportData }),
-    el("button", { class: "btn secondary", text: "⬆ Import backup", onclick: importData }),
+    el("p", { class: "muted", text: t("All data lives on this device. Export a backup file regularly so clearing your browser can't lose your progress.", "모든 데이터는 이 기기에 저장됩니다. 브라우저를 지워도 진행 상황을 잃지 않도록 백업 파일을 정기적으로 내보내세요.") }),
+    el("button", { class: "btn secondary", text: t("⬇ Export backup", "⬇ 백업 내보내기"), onclick: exportData }),
+    el("button", { class: "btn secondary", text: t("⬆ Import backup", "⬆ 백업 가져오기"), onclick: importData }),
   ]));
 
-  wrap.appendChild(el("h2", { text: "Danger zone" }));
+  wrap.appendChild(el("h2", { text: t("Danger zone", "위험 구역") }));
   wrap.appendChild(el("div", { class: "card stack" }, [
-    el("button", { class: "btn danger", text: "Reset progress (keep words)", onclick: resetProgress }),
-    el("button", { class: "btn danger", text: "Erase everything", onclick: eraseAll }),
+    el("button", { class: "btn danger", text: t("Reset progress (keep words)", "진행 초기화 (단어 유지)"), onclick: resetProgress }),
+    el("button", { class: "btn danger", text: t("Erase everything", "전체 삭제"), onclick: eraseAll }),
   ]));
 
   wrap.appendChild(el("p", { class: "muted", style: "text-align:center;margin-top:20px",
-    text: "되새김 · Korean SRS — your personal vocabulary trainer" }));
+    text: t("되새김 · Korean SRS — your personal vocabulary trainer", "되새김 · Korean SRS — 나만의 어휘 트레이너") }));
   view.appendChild(wrap);
 };
 
@@ -720,7 +773,7 @@ async function exportData() {
   const a = el("a", { href: url, download: `korean-srs-backup-${todayStr()}.json` });
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
-  toast("Backup exported");
+  toast(t("Backup exported", "백업 내보냄"));
 }
 
 function importData() {
@@ -730,21 +783,25 @@ function importData() {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      if (!data.cards) throw new Error("Invalid file");
-      if (!confirm("This replaces all current data with the backup. Continue?")) return;
+      if (!data.cards) throw new Error(t("Invalid file", "잘못된 파일"));
+      if (!confirm(t("This replaces all current data with the backup. Continue?", "현재 데이터를 모두 백업으로 교체합니다. 계속할까요?"))) return;
       await db.clear("cards"); await db.clear("days");
       await db.bulkPut("cards", data.cards);
       if (data.days) await db.bulkPut("days", data.days);
       if (data.settings) await saveSettings(data.settings);
       if (data.state) await saveState(data.state);
-      toast("Backup imported"); go("home");
-    } catch (e) { toast("Import failed: " + e.message); }
+      const s = await getSettings();
+      LANG = s.lang === "ko" ? "ko" : "en";
+      document.documentElement.lang = LANG;
+      applyChrome();
+      toast(t("Backup imported", "백업 가져옴")); go("home");
+    } catch (e) { toast(t("Import failed: ", "가져오기 실패: ") + e.message); }
   });
   input.click();
 }
 
 async function resetProgress() {
-  if (!confirm("Reset all study progress and stats? Your word list stays.")) return;
+  if (!confirm(t("Reset all study progress and stats? Your word list stays.", "모든 학습 진행과 통계를 초기화할까요? 단어 목록은 유지됩니다."))) return;
   const cards = await db.getAll("cards");
   for (const c of cards) {
     Object.assign(c, { introduced: false, status: "new", ease: 2.5, intervalDays: 0,
@@ -753,21 +810,25 @@ async function resetProgress() {
   await db.bulkPut("cards", cards);
   await db.clear("days");
   await saveState({ lastIntroDate: null, firstDayDone: false });
-  toast("Progress reset"); go("home");
+  toast(t("Progress reset", "진행 초기화됨")); go("home");
 }
 
 async function eraseAll() {
-  if (!confirm("Erase EVERYTHING (words, progress, settings)? This cannot be undone.")) return;
+  if (!confirm(t("Erase EVERYTHING (words, progress, settings)? This cannot be undone.", "전부 삭제할까요 (단어, 진행, 설정)? 되돌릴 수 없습니다."))) return;
   await db.clear("cards"); await db.clear("days"); await db.clear("meta");
   await mergeSeed();
-  toast("Everything erased & reseeded"); go("home");
+  toast(t("Everything erased & reseeded", "전부 삭제 후 초기 단어 복원됨")); go("home");
 }
 
 // ═══════════════════════ BOOT ═══════════════════════
 async function boot() {
   const added = await mergeSeed();
+  const s = await getSettings();
+  LANG = s.lang === "ko" ? "ko" : "en";
+  document.documentElement.lang = LANG;
+  applyChrome();
   go("home");
-  if (added > 0) toast(`Added ${added} new words to your library`);
+  if (added > 0) toast(t(`Added ${added} new words to your library`, `라이브러리에 새 단어 ${added}개 추가됨`));
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }

@@ -55,6 +55,7 @@ export const DEFAULT_SETTINGS = {
   sessionMinutes: 10,  // target session length (soft)
   typingThreshold: 4,  // interval (days) at which a word graduates from MC to typing
   passGoal: 95,        // % pass rate (over the rolling window) that ends a drill
+  lang: "en",          // UI language: "en" | "ko" (vocabulary content is unaffected)
 };
 
 export async function getSettings() {
