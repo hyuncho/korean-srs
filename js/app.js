@@ -274,11 +274,14 @@ function renderQuestion(session) {
   session.currentCard = card;
   const typing = session.modeById[card.id];
 
-  const right = recentRight(session), n = session.recent.length;
+  // ✓/✗ are the running session tally (always climb); the rate is the rolling
+  // window that actually ends the drill, shown separately so they don't look at odds.
+  const n = session.recent.length, win = session.recentWindow;
+  const windowLabel = n >= win ? `${t("last", "최근")} ${win}` : `${t("last", "최근")} ${n}/${win}`;
   const scoreHtml =
-    `<b class="ok-num">✓ ${right}</b>&nbsp;&nbsp;` +
-    `<b class="no-num">✗ ${n - right}</b>&nbsp;&nbsp;·&nbsp;&nbsp;` +
-    `<b>${recentRate(session)}%</b>&nbsp;<span class="muted">→ ${session.goal}% · ${t("last", "최근")} ${n}/${session.recentWindow}</span>`;
+    `<b class="ok-num">✓ ${session.totalCorrect}</b>&nbsp;&nbsp;` +
+    `<b class="no-num">✗ ${session.totalWrong}</b>&nbsp;&nbsp;·&nbsp;&nbsp;` +
+    `<span class="muted">${windowLabel}:</span>&nbsp;<b>${recentRate(session)}%</b>&nbsp;<span class="muted">→ ${session.goal}%</span>`;
 
   const quiz = el("div", { class: "quiz" });
   quiz.appendChild(el("div", { class: "quiz-top" }, [
