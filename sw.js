@@ -1,5 +1,6 @@
 // Service worker: network-first for the app shell so the newest code always wins
 // when online, with a cached copy as offline fallback.
+// Bump together with APP_VERSION in js/app.js (shown in Settings).
 const CACHE = "korean-srs-v10";
 const ASSETS = [
   ".",

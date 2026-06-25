@@ -6,6 +6,9 @@ import {
   todayStr, applyAnswer, isTypingCard, ensureDailyIntroduction, getDay,
 } from "./srs.js";
 
+// Build version shown in Settings. Bump together with CACHE in sw.js.
+const APP_VERSION = "v10";
+
 // ── DOM helpers ──
 const view = document.getElementById("view");
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -759,7 +762,7 @@ routes.settings = async function () {
   ]));
 
   wrap.appendChild(el("p", { class: "muted", style: "text-align:center;margin-top:20px",
-    text: t("되새김 · Korean SRS — your personal vocabulary trainer", "되새김 · Korean SRS — 나만의 어휘 트레이너") }));
+    text: t("되새김 · Korean SRS — your personal vocabulary trainer", "되새김 · Korean SRS — 나만의 어휘 트레이너") + ` · ${APP_VERSION}` }));
   view.appendChild(wrap);
 };
 
