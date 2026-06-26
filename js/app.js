@@ -7,7 +7,7 @@ import {
 } from "./srs.js";
 
 // Build version shown in Settings. Bump together with CACHE in sw.js.
-const APP_VERSION = "v10";
+const APP_VERSION = "v11";
 
 // ── DOM helpers ──
 const view = document.getElementById("view");
@@ -298,10 +298,17 @@ function renderQuestion(session) {
   view.appendChild(quiz);
 }
 
+// What Korean to show as the MC prompt: drop the 하다/되다 ending so the
+// grammatical form doesn't telegraph the "to …" verb option (과감하다 → 과감).
+// Other endings (e.g. 드물다) are shown whole.
+function promptKo(ko) {
+  return (ko.endsWith("하다") || ko.endsWith("되다")) ? ko.slice(0, -2) : ko;
+}
+
 function renderMultipleChoice(quiz, session, card) {
   quiz.appendChild(el("div", { class: "prompt-card" }, [
     el("div", { class: "mode-tag", text: t("Recognize · pick the meaning", "인식 · 뜻 고르기") }),
-    el("div", { class: "word", text: card.ko }),
+    el("div", { class: "word", text: promptKo(card.ko) }),
   ]));
 
   const distractPool = shuffle(

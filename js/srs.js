@@ -3,6 +3,15 @@ import { db, getSettings, getState, saveState } from "./db.js";
 
 const DAY_MS = 86400000;
 
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export function todayStr(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -50,12 +59,12 @@ export async function ensureDailyIntroduction() {
   if (state.lastIntroDate === today) return 0;
 
   const cards = await db.getAll("cards");
-  const notIntro = cards
-    .filter((c) => !c.introduced && !c.suspended)
-    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const notIntro = cards.filter((c) => !c.introduced && !c.suspended);
 
   const count = state.firstDayDone ? settings.newPerDay : settings.firstDayCount;
-  const batch = notIntro.slice(0, count);
+  // Pick the day's new words at random from the pool so learning order isn't
+  // tied to seed/insertion order.
+  const batch = shuffle(notIntro).slice(0, count);
   const now = Date.now();
   for (const c of batch) {
     c.introduced = true;
