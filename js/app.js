@@ -222,6 +222,9 @@ async function startSession() {
     totalAnswers: 0, totalCorrect: 0, totalWrong: 0, bestRate: 0,
     // continuous mode
     introQueue: [], weights: {}, lastId: null, currentCard: null,
+    // when set, the next question is a typing-reinforcement drill for this card
+    // (pure practice — see afterReinforce); set after an MC answer.
+    reinforce: null,
     // rolling window of recent results (true=correct); ends when the last
     // `recentWindow` answers reach the goal. Window = one deck's worth, so
     // early misses age out instead of anchoring a cumulative rate forever.
@@ -273,9 +276,17 @@ function pickContinuous(session) {
 
 function renderQuestion(session) {
   clear(view);
-  const card = pickContinuous(session);
+  // A pending reinforcement drill jumps the queue: same word, forced typing.
+  let reinforce = false, card;
+  if (session.reinforce) {
+    card = session.reinforce;
+    session.reinforce = null;
+    reinforce = true;
+  } else {
+    card = pickContinuous(session);
+  }
   session.currentCard = card;
-  const typing = session.modeById[card.id];
+  const typing = reinforce || session.modeById[card.id];
 
   // ✓/✗ are the running session tally (always climb); the rate is the rolling
   // window that actually ends the drill, shown separately so they don't look at odds.
@@ -292,7 +303,7 @@ function renderQuestion(session) {
     el("span", { class: "muted", onclick: () => endSession(session), text: t("End ✕", "종료 ✕"), style: "cursor:pointer" }),
   ]));
 
-  if (typing) renderTyping(quiz, session, card);
+  if (typing) renderTyping(quiz, session, card, reinforce);
   else renderMultipleChoice(quiz, session, card);
 
   view.appendChild(quiz);
@@ -352,9 +363,11 @@ function renderMultipleChoice(quiz, session, card) {
   quiz.appendChild(feedback);
 }
 
-function renderTyping(quiz, session, card) {
+function renderTyping(quiz, session, card, reinforce) {
   quiz.appendChild(el("div", { class: "prompt-card" }, [
-    el("div", { class: "mode-tag", text: t("Produce · type the Korean", "생성 · 한국어 입력") }),
+    el("div", { class: "mode-tag", text: reinforce
+      ? t("Reinforce · type the Korean", "복습 · 한국어 입력")
+      : t("Produce · type the Korean", "생성 · 한국어 입력") }),
     el("div", { class: "word", text: card.en }),
     card.topic ? el("div", { class: "sub", text: "(" + card.topic + ")" }) : null,
   ]));
@@ -379,7 +392,8 @@ function renderTyping(quiz, session, card) {
       card.ex ? el("div", { class: "example", html: `${card.ex}<br>${card.exEn || ""}` }) : null,
     ]));
     submit.remove(); // drop the Check button; afterAnswer adds "Next →"
-    afterAnswer(session, card, correct, true, quiz, reveal);
+    if (reinforce) afterReinforce(session, quiz);
+    else afterAnswer(session, card, correct, true, quiz, reveal);
   }
   const submit = el("button", { class: "btn", text: t("Check", "확인") });
   submit.addEventListener("click", () => check(false));
@@ -396,6 +410,7 @@ function renderTyping(quiz, session, card) {
 }
 
 async function afterAnswer(session, card, correct, typed, quiz, revealNode) {
+  const firstSeen = card.seen === 0; // capture before applyAnswer bumps it
   session.totalAnswers += 1;
   if (correct) session.totalCorrect += 1; else session.totalWrong += 1;
   applyAnswer(card, correct, typed);
@@ -422,6 +437,11 @@ async function afterAnswer(session, card, correct, typed, quiz, revealNode) {
   await db.put("days", day);
   await recordTime(session);
 
+  // After an MC question, drill the same word by typing it — the first time the
+  // word is ever seen, or whenever the MC was missed. Pure practice: the typing
+  // result doesn't touch SRS/score (see afterReinforce). Skip once the goal is hit.
+  if (!typed && (firstSeen || !correct) && !goalReached) session.reinforce = card;
+
   const actions = quiz.querySelector(".mc-actions");
   if (actions) actions.remove();
 
@@ -441,6 +461,19 @@ async function afterAnswer(session, card, correct, typed, quiz, revealNode) {
     : () => renderQuestion(session);
   const next = el("button", { class: "btn", text: label });
   next.addEventListener("click", onNext);
+  quiz.appendChild(next);
+  setTimeout(() => next.focus(), 30);
+}
+
+// Reinforcement drill: pure practice. The reveal/example is already shown by
+// renderTyping's check(); we only log study time and advance — no SRS, no score,
+// no rolling-window, so a wrong answer here just moves on.
+async function afterReinforce(session, quiz) {
+  await recordTime(session);
+  const actions = quiz.querySelector(".mc-actions");
+  if (actions) actions.remove();
+  const next = el("button", { class: "btn", text: t("Next →", "다음 →") });
+  next.addEventListener("click", () => renderQuestion(session));
   quiz.appendChild(next);
   setTimeout(() => next.focus(), 30);
 }
